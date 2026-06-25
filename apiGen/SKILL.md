@@ -9,11 +9,68 @@ description: 将 Swagger/OpenAPI 文档转换为 Kotlin 代码（suspend + Retro
 
 ## Agent 执行流程
 
-1. **确认必填参数**：询问 `--swaggerApiUrl`、`--salt` 和 `--package`。salt 建议用项目名（如 `myapp`），package 用项目根包名（如 `com.myapp.api`）。缺失则询问用户。
-2. **可选参数**：全部使用默认值。仅在用户明确指定时才覆盖（如"包名用 com.xxx"、"按模块拆分"等），无需逐项询问。
-3. **进入 skill 目录**：`cd` 到 apiGen 所在目录（项目 `skills/apiGen` 或 `~/.claude/skills/apiGen`）
-4. **运行生成**：`python3 scripts/main.py ...`
-5. **报告结果**：输出目录、host、生成/跳过状态；如有新模型映射则展示给用户确认
+### 0. 前置检查
+
+- 确认 `python3 --version` >= 3.10，否则提示用户升级
+- 检查目标项目是否存在 `*/api_gen/generate.sh`，存在则读取并建议复用 `--salt` 和 `--outputDir`
+
+### 1. 确认必填参数
+
+询问用户三个必填参数：
+
+| 参数 | 建议值 | 说明 |
+|------|--------|------|
+| `--swaggerApiUrl` | - | Swagger JSON URL 或本地文件路径 |
+| `--salt` | 项目名（如 `myapp`） | **选定后不可更换**，否则所有混淆名变化 |
+| `--package` | 项目根包名（如 `com.myapp.api`） | Kotlin 代码的 package |
+
+若目标项目已有 `generate.sh` 或 `command_history.log`，优先从中提取参数并展示给用户确认。
+
+### 2. 可选参数
+
+全部使用默认值。仅在用户明确指定时才覆盖：
+
+- 用户说"包名用 com.xxx" → 覆盖 `--package`
+- 用户说"按模块拆分" → `--splitByTag true`
+- 跨模块同名模型冲突 → 建议 `--modelPrefix <模块名>_`
+
+### 3. 定位并进入 skill 目录
+
+优先 `~/.claude/skills/apiGen`，其次项目内 `skills/apiGen`。若都不存在则报错。
+
+```bash
+# agent 内部定位逻辑
+if [ -d ~/.claude/skills/apiGen ]; then
+  cd ~/.claude/skills/apiGen
+elif [ -d skills/apiGen ]; then
+  cd skills/apiGen
+else
+  echo "错误: 找不到 apiGen skill 目录"
+  exit 1
+fi
+```
+
+### 4. 运行生成
+
+```bash
+python3 scripts/main.py \
+  --swaggerApiUrl "..." \
+  --salt "..." \
+  --package "..."
+```
+
+### 5. 处理结果
+
+根据脚本输出了解情况：
+
+| 输出关键字 | 状态 | Agent 应做 |
+|-----------|------|-----------|
+| `All operations completed` | ✅ 成功 | 报告生成路径、模型数量、API 接口名 |
+| `swagger json file has not changed` | ⏭️ 跳过 | 告知用户 Swagger 无变更，已跳过生成 |
+| `New model names detected` | ⚠️ 需确认 | 展示新增映射列表 `{原始名} → {混淆名}`，询问是否确认 |
+| `new model mappings need confirmation` | ⚠️ 同上 | 同上 |
+| `Code generation failed` | ❌ 失败 | 展示错误堆栈，建议检查 Swagger 格式 |
+| `Error:` 开头 | ❌ 参数错误 | 根据提示修正参数后重试
 
 ## 命令行参考
 
@@ -36,6 +93,7 @@ description: 将 Swagger/OpenAPI 文档转换为 Kotlin 代码（suspend + Retro
 | `--baseResponseName` | `BaseResponse` | 响应包装类名 |
 | `--obfuscateOperationId` | `true` | 混淆 operationId |
 | `--apiName` | `ApiService` | 接口名称（`--splitByTag false` 时生效） |
+| `--modelPrefix` | (空) | 模型类名前缀，用于解决跨模块同名模型冲突 |
 | `--apiGenDir` | `<outputDir>/api_gen` | apiGen 工作目录 |
 
 ## 典型场景
@@ -146,7 +204,6 @@ python3 scripts/main.py \
     │   └── swagger_md5.txt       ← MD5 缓存
     └── history/
         ├── swagger_*.json        ← Swagger 历史快照
-        └── code_<ts>/            ← 旧代码备份
 ```
 
 ## 关键行为
@@ -154,7 +211,6 @@ python3 scripts/main.py \
 - **命令记录**：每次执行追加 `api_gen/command_history.log`（时间戳 + host + 完整命令 + 执行状态）；生成成功后覆盖 `api_gen/generate.sh`（绝对路径脚本，可直接运行复现）
 - **MD5 去重**：Swagger 未变更时跳过生成
 - **变更检测**：Swagger 更新时输出字段级 diff（新增/删除参数、返回字段、响应码变更）
-- **自动备份**：变更时将旧代码备份到 `api_gen/history/code_<ts>/`
 - **模型名稳定**：首次运行导出映射，后续自动加载 `api_gen/model_name_mapping.json`，无需手动指定 `--modelNameMap`
 - **新增模型检测**：Swagger 新增 definition 时脚本中断，导出新映射并提示用户确认后再运行
 - **公共 Header**：出现率 >= 90% 的 header 参数自动识别为公共 header，生成 `ApiHeaders.createHeaders()` 方法；非公共 header 会被移除（需手动添加 `@Header` 注解）

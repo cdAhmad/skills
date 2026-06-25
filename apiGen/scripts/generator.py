@@ -28,15 +28,15 @@ def _safe_name(name: str) -> str:
     return name
 
 
-def _swagger_type_to_kotlin(param: dict, definitions: dict) -> str:
+def _swagger_type_to_kotlin(param: dict, definitions: dict, model_prefix: str = "") -> str:
     if "$ref" in param:
-        return _safe_name(param["$ref"].split("/")[-1])
+        return model_prefix + _safe_name(param["$ref"].split("/")[-1])
     if "schema" in param:
-        return _swagger_type_to_kotlin(param["schema"], definitions)
+        return _swagger_type_to_kotlin(param["schema"], definitions, model_prefix)
     stype = param.get("type", "object")
     if stype == "array":
         items = param.get("items", {})
-        return f"kotlin.collections.List<{_swagger_type_to_kotlin(items, definitions)}>"
+        return f"kotlin.collections.List<{_swagger_type_to_kotlin(items, definitions, model_prefix)}>"
     if stype == "file":
         return "okhttp3.MultipartBody.Part"
     return _SWAGGER_TO_KOTLIN.get(stype, "kotlin.Any")
@@ -48,14 +48,14 @@ def _default_value(ktype: str) -> str:
 
 # ── BaseResponse ─────────────────────────────────────────────
 
-def _gen_base_response(pkg: str, name: str) -> str:
+def _gen_base_response(pkg: str, name: str, model_prefix: str = "") -> str:
     return f"""package {pkg}
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class {name}<T>(
+data class {model_prefix}{name}<T>(
     @SerialName("code") val code: kotlin.Int? = null,
     @SerialName("msg") val msg: kotlin.String? = null,
     @SerialName("data") val `data`: T? = null,
@@ -66,8 +66,9 @@ data class {name}<T>(
 # ── 模型 ─────────────────────────────────────────────────────
 
 def _gen_model(pkg: str, def_name: str, definition: dict, definitions: dict,
-               original_name: str = "", used_by: list[str] | None = None) -> str:
-    safe_name = _safe_name(def_name)
+               original_name: str = "", used_by: list[str] | None = None,
+               model_prefix: str = "") -> str:
+    safe_name = model_prefix + _safe_name(def_name)
     props = definition.get("properties", {})
 
     lines = [f"package {pkg}", "", "import kotlinx.serialization.SerialName",
@@ -91,7 +92,7 @@ def _gen_model(pkg: str, def_name: str, definition: dict, definitions: dict,
     field_lines = []
     for prop_name, prop_schema in props.items():
         fname = _safe_name(prop_name)
-        ktype = _swagger_type_to_kotlin(prop_schema, definitions)
+        ktype = _swagger_type_to_kotlin(prop_schema, definitions, model_prefix)
         raw_desc = prop_schema.get("description", "")
 
         # 提取原始字段名 + 中文描述
@@ -124,7 +125,8 @@ def _gen_api(swagger: dict, pkg: str, model_pkg: str,
              base_response_name: str,
              common_headers: list[dict] | None = None,
              split_by_tag: bool = False, tag_info: dict | None = None,
-             api_name: str = "ApiService"
+             api_name: str = "ApiService",
+             model_prefix: str = "",
              ) -> tuple[str, dict[str, list[str]]]:
     """生成 Retrofit2 API，返回 (代码, 模型使用映射)"""
     paths = swagger.get("paths", {})
@@ -157,7 +159,7 @@ def _gen_api(swagger: dict, pkg: str, model_pkg: str,
             for p in params:
                 pin = p.get("in", "")
                 pname = _safe_name(p.get("name", "unknown"))
-                ktype = _swagger_type_to_kotlin(p, definitions)
+                ktype = _swagger_type_to_kotlin(p, definitions, model_prefix)
                 preq = p.get("required", False)
 
                 if pin == "query":
@@ -184,7 +186,7 @@ def _gen_api(swagger: dict, pkg: str, model_pkg: str,
             # 返回类型 — 优先选择 2xx 响应来确定泛型参数
             sorted_responses = sorted(responses.items(),
                                       key=lambda x: (0 if x[0].startswith("2") else 1, x[0]))
-            return_type = f"{base_response_name}<kotlin.Any>"
+            return_type = f"{model_prefix}{base_response_name}<kotlin.Any>"
             response_infos = []
             type_from_response = None
             for code, resp in sorted_responses:
@@ -195,20 +197,20 @@ def _gen_api(swagger: dict, pkg: str, model_pkg: str,
                     continue  # 已从更优先的响应码获取了类型
                 schema = resp.get("schema", {})
                 if "$ref" in schema:
-                    ref = _safe_name(schema["$ref"].split("/")[-1])
-                    type_from_response = f"{base_response_name}<{ref}>"
+                    ref = model_prefix + _safe_name(schema["$ref"].split("/")[-1])
+                    type_from_response = f"{model_prefix}{base_response_name}<{ref}>"
                     model_imports.add(ref)
                     model_usage.setdefault(ref, []).append(endpoint_desc)
                 elif schema.get("type") == "array":
                     items = schema.get("items", {})
                     if "$ref" in items:
-                        ref = _safe_name(items["$ref"].split("/")[-1])
-                        type_from_response = f"{base_response_name}<kotlin.collections.List<{ref}>>"
+                        ref = model_prefix + _safe_name(items["$ref"].split("/")[-1])
+                        type_from_response = f"{model_prefix}{base_response_name}<kotlin.collections.List<{ref}>>"
                         model_imports.add(ref)
                         model_usage.setdefault(ref, []).append(endpoint_desc)
                     else:
-                        inner = _swagger_type_to_kotlin(items, definitions)
-                        type_from_response = f"{base_response_name}<kotlin.collections.List<{inner}>>"
+                        inner = _swagger_type_to_kotlin(items, definitions, model_prefix)
+                        type_from_response = f"{model_prefix}{base_response_name}<kotlin.collections.List<{inner}>>"
             if type_from_response:
                 return_type = type_from_response
 
@@ -263,7 +265,7 @@ def _gen_api(swagger: dict, pkg: str, model_pkg: str,
 
     def _build_imports() -> list[str]:
         imps = [f"package {pkg}", "",
-                f"import {model_pkg}.{base_response_name}",
+                f"import {model_pkg}.{model_prefix}{base_response_name}",
                 "import retrofit2.http.*", ""]
         if has_multipart:
             imps.extend(["import okhttp3.MultipartBody",
@@ -367,7 +369,8 @@ def generate(input_file: str, output_dir: str, package_name: str,
              model_name_mapping: dict[str, str] | None = None,
              split_by_tag: bool = False, tag_info: dict | None = None,
              source_folder: str = "src/main/kotlin",
-             api_name: str = "ApiService"):
+             api_name: str = "ApiService",
+             model_prefix: str = ""):
     """从清洗后的 Swagger JSON 生成 Kotlin 项目"""
     with open(input_file, encoding="utf-8") as f:
         swagger = json.load(f)
@@ -380,35 +383,183 @@ def generate(input_file: str, output_dir: str, package_name: str,
     os.makedirs(model_path, exist_ok=True)
     os.makedirs(api_path, exist_ok=True)
 
-    # BaseResponse
-    with open(os.path.join(model_path, f"{base_response_name}.kt"), "w", encoding="utf-8") as f:
-        f.write(_gen_base_response(model_package, base_response_name))
-    print(f"Generated {model_path}/{base_response_name}.kt")
+    # ── 辅助函数：纯增量追加 ──
+
+    def _parse_field_names_from_code(code: str) -> set[str]:
+        """从生成的模型代码中提取字段名集合"""
+        # 贪婪 .* 到最后一个 )，避免注释中的 ) 干扰
+        m = re.search(r'data class \w+\((.*)\)', code, re.DOTALL)
+        if not m:
+            return set()
+        return set(re.findall(r'(?:val|var)\s+(\w+)\s*:', m.group(1)))
+
+    def _parse_field_names_from_file(path: str) -> set[str]:
+        """从已有模型文件中提取字段名集合"""
+        with open(path, encoding="utf-8") as f:
+            return _parse_field_names_from_code(f.read())
+
+    def _append_model_fields(path: str, new_code: str):
+        """在模型文件 ) 前追加 Swagger 新增字段"""
+        new_fields_code = re.search(r'data class \w+\((.*)\)', new_code, re.DOTALL)
+        if not new_fields_code:
+            return
+        old_names = _parse_field_names_from_file(path)
+        # 提取新代码中所有字段块（带注释+注解的完整行）
+        all_new = re.findall(r'(\s*//.*?\n\s*(?:@\w+[^\n]*\n\s*)?val\s+\w+\s*:.*)', new_fields_code.group(1))
+        added = []
+        for f in all_new:
+            f = f.strip().rstrip(',')
+            name_match = re.search(r'val\s+(\w+)\s*:', f)
+            if name_match and name_match.group(1) not in old_names:
+                added.append(f)
+        if not added:
+            return
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip() == ")":
+                # 前一行补逗号（如果还没有）
+                prev = lines[i-1].rstrip()
+                if not prev.endswith(','):
+                    lines[i-1] = prev + ',\n'
+                for field in added:
+                    lines.insert(i, f"    {field},\n")
+                break
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+    def _parse_api_methods(code: str) -> set[str]:
+        """提取 suspend fun 方法名集合"""
+        return set(re.findall(r'suspend fun\s+(\w+)\(', code))
+
+    def _append_api_methods(path: str, new_code: str):
+        """在 API 接口 } 前追加新方法 + 补充 import"""
+        old_text = open(path, encoding="utf-8").read()
+        old_methods = _parse_api_methods(old_text)
+
+        # 补充 import: 新代码中有但旧文件没有的 model import
+        pkg_prefix = f"import {model_package}."
+        new_imports = set(re.findall(rf'^{pkg_prefix}\S+', new_code, re.MULTILINE))
+        old_imports = set(re.findall(rf'^{pkg_prefix}\S+', old_text, re.MULTILINE))
+        missing = sorted(new_imports - old_imports)
+        if missing:
+            lines = old_text.splitlines(keepends=True)
+            # 在 import 块末尾（interface 之前）插入
+            insert_pos = 0
+            for idx, l in enumerate(lines):
+                if l.strip().startswith("import "):
+                    insert_pos = idx + 1
+            # 确保 insert_pos 后有空行
+            for imp in missing:
+                lines.insert(insert_pos, imp + "\n")
+                insert_pos += 1
+            lines.insert(insert_pos, "\n")
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+
+        # 提取新代码中 interface body 部分
+        m = re.search(r'interface \w+ \{(.*)\}', new_code, re.DOTALL)
+        if not m:
+            return
+        body = m.group(1)
+        # 按方法块分割：以 KDoc /** 或 Retrofit 注解为边界
+        blocks = re.split(r'\n(?=    (?:/\*\*|@(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|HTTP|Headers|Multipart|FormUrlEncoded|Streaming)\b))', body)
+        # 累积合并：不含 suspend fun 的块是下一块的 preamble（KDoc/注解）
+        merged = []
+        buf = ""
+        for block in blocks:
+            b = block.rstrip()
+            if not b:
+                continue
+            if 'suspend fun' in b:
+                merged.append((buf + "\n" + b).lstrip('\n') if buf else b)
+                buf = ""
+            else:
+                buf = (buf + "\n" + b).lstrip('\n') if buf else b
+        # 筛选仅新增方法
+        added = []
+        for m in merged:
+            name_match = re.search(r'suspend fun\s+(\w+)\(', m)
+            if name_match and name_match.group(1) not in old_methods:
+                added.append(m)
+        if not added:
+            return
+        lines = open(path, encoding="utf-8").readlines()
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip() == "}":
+                for method in added:
+                    for ml in reversed(method.split('\n')):
+                        lines.insert(i, ml + "\n")
+                    lines.insert(i, "\n")
+                break
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+    stats = {"generated": 0, "updated": 0, "skipped": 0}
+
+    # BaseResponse — 始终全量（简单文件，无手动修改场景）
+    br_file = f"{model_prefix}{base_response_name}.kt"
+    br_path = os.path.join(model_path, br_file)
+    br_code = _gen_base_response(model_package, base_response_name, model_prefix)
+    if os.path.exists(br_path):
+        stats["skipped"] += 1
+        print(f"[skipped] {model_path}/{br_file}")
+    else:
+        with open(br_path, "w", encoding="utf-8") as f:
+            f.write(br_code)
+        stats["generated"] += 1
+        print(f"[generated] {model_path}/{br_file}")
 
     # API → 收集模型使用信息
     api_code, model_usage = _gen_api(swagger, api_package, model_package,
                                      base_response_name, common_headers,
-                                     split_by_tag, tag_info, api_name)
-    api_filename = f"{api_name}.kt"
-    with open(os.path.join(api_path, api_filename), "w", encoding="utf-8") as f:
-        f.write(api_code)
-    print(f"Generated {api_path}/{api_filename}")
+                                     split_by_tag, tag_info, api_name, model_prefix)
+    api_filename = f"{model_prefix}{api_name}.kt"
+    api_path_full = os.path.join(api_path, api_filename)
+    if os.path.exists(api_path_full):
+        old_methods = _parse_api_methods(open(api_path_full, encoding="utf-8").read())
+        new_methods = _parse_api_methods(api_code)
+        added = new_methods - old_methods
+        if added:
+            _append_api_methods(api_path_full, api_code)
+            stats["updated"] += 1
+            print(f"[updated] +{len(added)} methods {api_path}/{api_filename}")
+        else:
+            stats["skipped"] += 1
+            print(f"[skipped] {api_path}/{api_filename}")
+    else:
+        with open(api_path_full, "w", encoding="utf-8") as f:
+            f.write(api_code)
+        stats["generated"] += 1
+        print(f"[generated] {api_path}/{api_filename}")
 
     # 反向映射: obfuscated → original
     rev_mapping = {}
     if model_name_mapping:
         rev_mapping = {v: k for k, v in model_name_mapping.items()}
 
-    # 模型
+    # 模型 — 纯增量追加
     count = 0
     for def_name, definition in definitions.items():
-        safe = _safe_name(def_name)
+        safe = model_prefix + _safe_name(def_name)
         orig = rev_mapping.get(def_name, "")
-        used = model_usage.get(def_name, model_usage.get(safe, []))
-        code = _gen_model(model_package, def_name, definition, definitions,
-                          original_name=orig, used_by=used)
-        with open(os.path.join(model_path, f"{safe}.kt"), "w", encoding="utf-8") as f:
-            f.write(code)
+        used = model_usage.get(safe, model_usage.get(_safe_name(def_name), []))
+        new_code = _gen_model(model_package, def_name, definition, definitions,
+                              original_name=orig, used_by=used, model_prefix=model_prefix)
+        model_file = os.path.join(model_path, f"{safe}.kt")
+        if os.path.exists(model_file):
+            old_names = _parse_field_names_from_file(model_file)
+            new_names = _parse_field_names_from_code(new_code)
+            added = new_names - old_names
+            if added:
+                _append_model_fields(model_file, new_code)
+                stats["updated"] += 1
+            else:
+                stats["skipped"] += 1
+        else:
+            with open(model_file, "w", encoding="utf-8") as f:
+                f.write(new_code)
+            stats["generated"] += 1
         count += 1
 
-    print(f"Done: {count} models + {base_response_name} + API interface")
+    print(f"Done: {count} models ({stats.get('generated', 0)} new / {stats.get('updated', 0)} updated / {stats.get('skipped', 0)} skipped) + {model_prefix}{base_response_name} + API interface")

@@ -50,6 +50,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--splitByTag", dest="split_by_tag",
                         default="false",
                         help="按 Swagger tag 拆分多个接口文件 (默认: false)")
+    parser.add_argument("--modelPrefix", dest="model_prefix",
+                        default="",
+                        help="模型类名前缀，如 Raucid (默认: 无)")
 
     parsed = parser.parse_args(args)
 

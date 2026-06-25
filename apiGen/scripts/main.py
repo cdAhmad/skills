@@ -30,6 +30,8 @@ def main():
     print(f"  disableModelMapping: {args.disable_model_mapping}")
     print(f"  modelNameMap: {args.model_name_map or '<none>'}")
     print(f"  exportModelNameMap: {args.export_model_name_map or '<disabled>'}")
+    print(f"  splitByTag: {args.split_by_tag}")
+    print(f"  modelPrefix: {args.model_prefix!r}")
     print()
 
     # 0. 准备工作
@@ -151,14 +153,7 @@ def main():
             f.write(f"  -> 仅导出映射\n\n")
         return
 
-    # 5. 备份旧生成代码 → 生成新 Kotlin 代码
-    src_dir = os.path.join(args.outputDir, "src")
-    if os.path.exists(src_dir):
-        ts = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join(args.api_gen_dir, "history", f"code_{ts}")
-        __import__('shutil').copytree(src_dir, backup_dir, dirs_exist_ok=True)
-        print(f"Backed up previous code to {backup_dir}")
-
+    # 5. 生成新 Kotlin 代码
     print("\nGenerating Kotlin code...")
     full_mapping = dict(clean.model_name_map)
     full_mapping.update(clean._new_mappings)
@@ -176,6 +171,7 @@ def main():
             tag_info=clean.tag_info if args.split_by_tag else None,
             source_folder=args.source_folder,
             api_name=args.apiName,
+            model_prefix=args.model_prefix,
         )
     except Exception as e:
         print(f"Code generation failed: {e}")
