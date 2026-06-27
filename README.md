@@ -39,6 +39,15 @@ Swagger/OpenAPI → Kotlin 代码生成器。纯 Python，零依赖。
 - MD5 去重、增量更新、自动备份旧代码
 - 模型名映射保持稳定，支持审核确认
 
+### swagger_annotate
+
+基于 Swagger JSON 为混淆后的 Kotlin Bean 自动补充字段注释。
+
+- 字段名自动匹配（Swagger property key ↔ Kotlin 字段名）
+- 类级别 KDoc 生成（接口地址 / 参数说明）
+- 手动映射兜底（MANUAL_COMMENTS 覆盖 Swagger 未定义的通用类）
+- CI 检查模式（`--check-only` 有缺失注释时 exit 1）
+
 ## 使用
 
 在 Android 项目根目录下，通过 Claude Code skill 调用：
@@ -55,4 +64,7 @@ Swagger/OpenAPI → Kotlin 代码生成器。纯 Python，零依赖。
 
 # Swagger → Kotlin 代码生成
 /apiGen
+
+# Swagger Bean 注释补充
+/swagger_annotate
 ```
