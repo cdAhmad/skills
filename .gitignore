@@ -4,3 +4,8 @@ figma-image/scripts/downloads/
 # Skill 内部生成的 Android res（skill 仓库不是 Android 项目，生成产物不应提交）
 figma-image/app/
 /.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/

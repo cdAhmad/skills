@@ -1,0 +1,11 @@
+[project]
+name = "swagger-mcp"
+version = "1.0.0"
+description = "MCP Server — Swagger 辅助工具集（代码生成、注释补充、日志拦截器）"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+swagger-mcp = "server:main"
