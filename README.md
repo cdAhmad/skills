@@ -39,6 +39,15 @@ Swagger/OpenAPI → Kotlin 代码生成器。纯 Python，零依赖。
 - MD5 去重、增量更新、自动备份旧代码
 - 模型名映射保持稳定，支持审核确认
 
+### swagger-generate-interface
+
+Swagger/OpenAPI → Kotlin 代码生成器。纯 Python，零依赖，不混淆命名。
+
+- 生成 `suspend fun` + Retrofit2 + kotlinx.serialization 代码
+- 不混淆命名，生成的代码与 Swagger 原文一致，可读性高
+- 增量合并：读取已有 `.kt` 文件，只追加新字段/方法
+- 字段注释仿照 swagger_annotate 的单行 KDoc 风格
+
 ### swagger_annotate
 
 基于 Swagger JSON 为混淆后的 Kotlin Bean 自动补充字段注释。
@@ -67,4 +76,7 @@ Swagger/OpenAPI → Kotlin 代码生成器。纯 Python，零依赖。
 
 # Swagger Bean 注释补充
 /swagger_annotate
+
+# Swagger → Kotlin 代码生成（不混淆，增量合并）
+/swagger-generate-interface
 ```
