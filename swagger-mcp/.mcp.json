@@ -2,7 +2,7 @@
   "mcpServers": {
     "swagger-mcp": {
       "command": ".venv/bin/python",
-      "args": ["server.py"],
+      "args": ["-m", "swagger_mcp.server"],
       "cwd": "${projectRoot}/swagger-mcp"
     }
   }

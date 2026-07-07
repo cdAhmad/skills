@@ -8,4 +8,4 @@ dependencies = [
 ]
 
 [project.scripts]
-swagger-mcp = "server:main"
+swagger-mcp = "swagger_mcp.server:main"
