@@ -1,6 +1,6 @@
 # Skills Repository
 
-Android 开发辅助 Skill 集合。
+Android 开发辅助 Skill 集合。默认使用中文对话。
 
 ## Skills
 
